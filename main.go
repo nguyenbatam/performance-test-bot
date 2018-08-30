@@ -6,108 +6,93 @@ import (
 	"fmt"
 	"github.com/ethereum/go-ethereum/accounts/keystore"
 	"github.com/ethereum/go-ethereum/ethclient"
-	"github.com/satori/go.uuid"
 	"io/ioutil"
 	"os"
-	"path/filepath"
 	"sync"
-	"text/template"
 	"time"
+	"github.com/ethereum/go-ethereum/core/types"
+	"log"
+	"math/big"
 )
 
 var (
-	NWorkers  = flag.Int("n", 4, "The number of workers to start")
-	CUrl      = flag.String("url", "http://localhost:8545", "That you want to connect")
-	NReq      = flag.Int("req", 1, "The number of transactions")
-	BootNodes = flag.String("bootnodes", "", "Bootstrap nodes for peer to peer network")
-	Port      = flag.Int("port", 30303, "Node port")
-	Attack    = flag.Int("attack", 0, "Start an attack campaign")
-	KeyFile   = flag.String("key-file", "key.json", "Key file name")
+	NWorkers = flag.Int("n", 4, "The number of workers to start")
+	NReq     = flag.Int("req", 1, "The number of transactions")
+	Url      = flag.String("url", "http://localhost:8545", "That you want to connect")
+	KeyFile  = flag.String("key-file", "key.json", "Key file name")
+	Password = flag.String("password", "", "Keyfile password")
 )
-
 var wg sync.WaitGroup
-
-var key string
-
-var NodeId string
-
-const tmpl = `
-./bot -n 1 -url https://core.tomocoin.io -req 1 -port 30304 -bootnodes enode://{{.ID}}@127.0.0.1:30303 -key-file key1.json
-`
-
 var client *ethclient.Client
 var nonce uint64
 var unlockedKey *keystore.Key
+var request []*types.Transaction
 
 func main() {
+	flag.Parse()
 	key_file := *KeyFile
+	fmt.Println(key_file, *NWorkers, *Url, )
 	if _, err := os.Stat(key_file); err != nil {
-		cur_dir, _ := filepath.Abs(filepath.Dir(os.Args[0]))
-
-		// Create an encrypted keystore with standard crypto parameters
-		ks := keystore.NewKeyStore(filepath.Join(cur_dir, "keystore"), keystore.StandardScryptN, keystore.StandardScryptP)
-
-		// Create a new account with the specified encryption passphrase
-		newAcc, err := ks.NewAccount("")
-		if err != nil {
-			fmt.Println("Failed to create new account: %v", err)
-		}
-		fmt.Println("Created new account address", newAcc.Address.String())
-		key_file = newAcc.URL.Path
+		fmt.Println(err)
 	}
-
-	uid := uuid.Must(uuid.NewV4())
-	NodeId = uid.String()
-	fmt.Println("NodeId", NodeId)
-
 	// get key file
-	k, err := ioutil.ReadFile(key_file)
+	data, err := ioutil.ReadFile(key_file)
 	if err != nil {
 		fmt.Println(err)
 	}
-	key := string(k)
-	fmt.Println(key)
-
-	flag.Parse()
-
-	client, _ = ethclient.Dial(*CUrl)
-	d := time.Now().Add(100000 * time.Millisecond)
-	ctx, _ := context.WithDeadline(context.Background(), d)
-	unlockedKey, _ = keystore.DecryptKey([]byte(key), "")
-	nonce, _ = client.NonceAt(ctx, unlockedKey.Address, nil)
-
-	if *Attack == 1 {
-		attack(*NReq, *NWorkers)
-	}
-
-	server := startServer()
-	if err = server.Start(); err != nil {
-		fmt.Println("Could not start server: %v", err)
-	}
-	t := template.New("Server")
-	t, err = t.Parse(tmpl)
+	client, err = ethclient.Dial(*Url)
 	if err != nil {
-		fmt.Println("Parse template", err)
+		log.Fatal(err)
 	}
-
-	if err := t.Execute(os.Stdout, server.NodeInfo()); err != nil {
-		fmt.Println("Run template", err)
-	}
-
-	for {
-	}
+	unlockedKey, _ = keystore.DecryptKey(data, *Password)
+	ctx, _ := context.WithTimeout(context.Background(), 100000*time.Millisecond)
+	nonce, _ = client.NonceAt(ctx, unlockedKey.Address, nil)
+	request = make([]*types.Transaction, *NReq * *NWorkers)
+	prepareData(*NReq, *NWorkers)
+	attack(*NReq, *NWorkers)
 }
 
 func attack(nReq int, nWorkers int) {
-	wg.Add(nReq)
-
-	// Start the dispatcher.
 	StartDispatcher(nWorkers)
-
-	for i := 0; i < nReq; i++ {
-		Collector(uint64(i) + nonce)
+	// Start the dispatcher.
+	for {
+		start := time.Now().UnixNano() / int64(time.Millisecond)
+		fmt.Println("Start send ", len(request), "request ")
+		for i := 0; i < len(request); i++ {
+			if (request)[i] == nil {
+				fmt.Println(i, (request)[i])
+			}
+			WorkQueue <- (request)[i]
+		}
+		prepareData(nReq, nWorkers)
+		end := time.Now().UnixNano() / int64(time.Millisecond)
+		fmt.Println("Done a round with time = ", end-start)
+		if (end-start < 1000) {
+			sleep := int(1000 + start - end)
+			time.Sleep(time.Duration(sleep) * time.Microsecond)
+		}
 	}
+}
 
+func prepareData(nReq int, nWorkers int) {
+	// Now, create all of our workers.
+	fmt.Println("Prepare data")
+	wg.Add(nWorkers)
+	for workerIndex := 0; workerIndex < nWorkers; workerIndex++ {
+		go func(workerIndex int) {
+			start := nReq * workerIndex
+			end := start + nReq
+			var err error
+			for i := start; i < end; i++ {
+				tx := types.NewTransaction(uint64(i)+nonce, unlockedKey.Address, big.NewInt(int64(i+1)+int64(nonce)), 21000, big.NewInt(int64(100000+i)), nil)
+				request[i], err = types.SignTx(tx, types.NewEIP155Signer(big.NewInt(89)), unlockedKey.PrivateKey)
+				if err != nil {
+					log.Fatal(err)
+				}
+			}
+			wg.Done()
+		}(workerIndex)
+	}
 	wg.Wait()
-
+	nonce = nonce + uint64(nReq*nWorkers)
 }

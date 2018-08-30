@@ -1,1 +1,1 @@
-./bot -n 1 -url https://core.tomocoin.io -req 1 -port 30303 -attack 1
+./bot -password 123456 -n 10 -req 10000 -url "http://localhost:8501" -key-file /home/tamnb/_projects/src/github.com/ethereum/go-ethereum/devnet/node1/keystore/UTC--2018-07-04T07-32-41.529884508Z--21292d56e2a8de3cc4672db039aaa27f9190b1f6
