@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"github.com/ethereum/go-ethereum/core/types"
+	"time"
 )
 
 // NewWorker creates, and returns a new Worker object. Its only argument
@@ -27,7 +28,10 @@ func (w Worker) Start() {
 		for {
 			select {
 			case signTx := <-w.Work:
+				start := time.Now().UnixNano()
 				err := Sender(signTx)
+				end := time.Now().UnixNano()
+				fmt.Println("send",(end-start)/int64(time.Millisecond),signTx.Hash().Hex())
 				if (err != nil) {
 					fmt.Println(err,signTx)
 				}
