@@ -14,7 +14,6 @@ import (
 	"log"
 	"math/big"
 	"github.com/ethereum/go-ethereum"
-	"strings"
 )
 
 var (
@@ -63,32 +62,33 @@ func attack(nReq int, nWorkers int) {
 		fmt.Println("Start send ", *NReq, "request ")
 
 		for i := 0; i < *NReq; i++ {
-			startPrice := int64(1)
-			value := big.NewInt(int64(i+1) + int64(nonce))
-			tx := types.NewTransaction(nonce, unlockedKey.Address, value, 21000, big.NewInt(startPrice), nil)
+			//startPrice := int64(1)
+			//value := big.NewInt(1)
+			tx := types.NewTransaction(nonce, unlockedKey.Address, big.NewInt(1), 21000, big.NewInt(1), nil)
 			signTx, err := types.SignTx(tx, types.NewEIP155Signer(big.NewInt(89)), unlockedKey.PrivateKey)
 			if err != nil {
 				log.Fatal(err)
 			}
 			err = Sender(signTx)
-			if err != nil && strings.Contains(err.Error(), "replacement transaction underpriced") {
-				checkContinue := true
-				for (checkContinue) {
-					startPrice = startPrice + 1000
-					fmt.Println("try resend transaction none = ", nonce, "  gasPrice ", startPrice, "err", err)
-					tx := types.NewTransaction(nonce, unlockedKey.Address, value, 21000, big.NewInt(startPrice), nil)
-					signTx, _ = types.SignTx(tx, types.NewEIP155Signer(big.NewInt(89)), unlockedKey.PrivateKey)
-					err = Sender(signTx)
-					if err != nil && strings.Contains(err.Error(), "replacement transaction underpriced") {
-						checkContinue = true
-					} else {
-						checkContinue = false
-						if err != nil {
-							fmt.Println(err, signTx.Hash().Hex(), nonce)
-						}
-					}
-				}
-			} else if err != nil {
+			//if err != nil && strings.Contains(err.Error(), "replacement transaction underpriced") {
+			//	checkContinue := true
+			//	for (checkContinue) {
+			//		startPrice = startPrice + 1000
+			//		fmt.Println("try resend transaction none = ", nonce, "  gasPrice ", startPrice, "err", err)
+			//		tx := types.NewTransaction(nonce, unlockedKey.Address, value, 21000, big.NewInt(startPrice), nil)
+			//		signTx, _ = types.SignTx(tx, types.NewEIP155Signer(big.NewInt(89)), unlockedKey.PrivateKey)
+			//		err = Sender(signTx)
+			//		if err != nil && strings.Contains(err.Error(), "replacement transaction underpriced") {
+			//			checkContinue = true
+			//		} else {
+			//			checkContinue = false
+			//			if err != nil {
+			//				fmt.Println(err, signTx.Hash().Hex(), nonce)
+			//			}
+			//		}
+			//	}
+			//} else
+			if err != nil {
 				fmt.Println(err, signTx.Hash().Hex(), nonce)
 			}
 			nonce++
