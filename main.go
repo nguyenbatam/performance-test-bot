@@ -89,7 +89,7 @@ func attack(nReq int, nWorkers int) {
 		fmt.Println("Done a round with time = ", end-start, unlockedKey.Address.Hex(), "balance", balance, time.Now().Format(time.RFC3339))
 		if (end-start < 1000) {
 			sleep := int(1000 + start - end)
-			time.Sleep(time.Duration(sleep) * time.Microsecond)
+			time.Sleep(time.Duration(sleep) * time.Millisecond)
 		}
 	}
 }
