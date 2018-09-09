@@ -63,7 +63,7 @@ func attack(nReq int, nWorkers int) {
 		fmt.Println("Start send ", *NReq, "request ")
 
 		for i := 0; i < *NReq; i++ {
-			startPrice := int64(10000 + uint64(i))
+			startPrice := int64(1)
 			value := big.NewInt(int64(i+1) + int64(nonce))
 			tx := types.NewTransaction(nonce, unlockedKey.Address, value, 21000, big.NewInt(startPrice), nil)
 			signTx, err := types.SignTx(tx, types.NewEIP155Signer(big.NewInt(89)), unlockedKey.PrivateKey)
@@ -74,7 +74,7 @@ func attack(nReq int, nWorkers int) {
 			if err != nil && strings.Contains(err.Error(), "replacement transaction underpriced") {
 				checkContinue := true
 				for (checkContinue) {
-					startPrice = startPrice + 100
+					startPrice = startPrice + 1000
 					fmt.Println("try resend transaction none = ", nonce, "  gasPrice ", startPrice, "err", err)
 					tx := types.NewTransaction(nonce, unlockedKey.Address, value, 21000, big.NewInt(startPrice), nil)
 					signTx, _ = types.SignTx(tx, types.NewEIP155Signer(big.NewInt(89)), unlockedKey.PrivateKey)
