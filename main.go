@@ -13,6 +13,7 @@ import (
 	"github.com/ethereum/go-ethereum/core/types"
 	"log"
 	"math/big"
+	"github.com/ethereum/go-ethereum"
 )
 
 var (
@@ -49,12 +50,12 @@ func main() {
 	ctx, _ := context.WithTimeout(context.Background(), 100000*time.Millisecond)
 	nonce, _ = client.NonceAt(ctx, unlockedKey.Address, nil)
 	balance, _ := client.BalanceAt(ctx, unlockedKey.Address, nil)
-	fmt.Println(unlockedKey.Address.Hex(), "balance", balance)
-	attack(*NReq, *NWorkers)
+	gasprice,_ :=client.EstimateGas(ctx,ethereum.CallMsg{})
+	fmt.Println(unlockedKey.Address.Hex(), "balance", balance,"gasprice",gasprice)
+	//attack(*NReq, *NWorkers)
 }
 
 func attack(nReq int, nWorkers int) {
-	StartDispatcher(nWorkers)
 	// Start the dispatcher.
 	for {
 		request = make([]*types.Transaction, *NReq * *NWorkers)
@@ -65,7 +66,7 @@ func attack(nReq int, nWorkers int) {
 			if (request)[i] == nil {
 				fmt.Println(i, (request)[i])
 			}
-			WorkQueue <- (request)[i]
+			Sender(request[i])
 		}
 		prepareData(request)
 		ctx, _ := context.WithTimeout(context.Background(), 100000*time.Millisecond)
