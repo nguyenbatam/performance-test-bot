@@ -1,11 +1,9 @@
 package main
 
 import (
-	"context"
 	"flag"
 	"fmt"
 	"github.com/ethereum/go-ethereum/accounts/keystore"
-	"github.com/ethereum/go-ethereum/ethclient"
 	"io/ioutil"
 	"os"
 	"sync"
@@ -14,7 +12,6 @@ import (
 	"log"
 	"math/big"
 	"net/http"
-	"github.com/ethereum/go-ethereum/rpc"
 	"os/signal"
 	"syscall"
 )
@@ -27,11 +24,11 @@ var (
 	Password = flag.String("password", "", "Keyfile password")
 )
 var wg sync.WaitGroup
-var client *ethclient.Client
 var nonce uint64
 var unlockedKey *keystore.Key
 var request []*types.Transaction
-var ctx context.Context
+var httpClient *http.Client
+
 func main() {
 	flag.Parse()
 	key_file := *KeyFile
@@ -47,23 +44,14 @@ func main() {
 	tr := &http.Transport{
 		MaxIdleConns:      10,
 		IdleConnTimeout:   30 * time.Second,
-		DisableKeepAlives: true,
+		DisableKeepAlives: false,
 	}
-	httpClient := http.Client{Transport: tr}
-	rpcClient, err := rpc.DialHTTPWithClient(*Url, &httpClient)
-	if err != nil {
-		log.Fatal(err)
-	}
-	client = ethclient.NewClient(rpcClient)
-	if err != nil {
-		log.Fatal(err)
-	}
-
+	httpClient = &http.Client{Transport: tr}
 	unlockedKey, _ = keystore.DecryptKey(data, *Password)
-	ctx= context.Background()
-	nonce, _ = client.NonceAt(ctx, unlockedKey.Address, nil)
-	balance, _ := client.BalanceAt(ctx, unlockedKey.Address, nil)
-	fmt.Println(unlockedKey.Address.Hex(), "balance", balance, time.Now().Format(time.RFC3339))
+	nonce, err = GetTransactionCount(unlockedKey.Address, httpClient)
+	fmt.Println(unlockedKey.Address.Hex(), "nonce", nonce, time.Now().Format(time.RFC3339), err)
+	balance, err := GetBalance(unlockedKey.Address, httpClient)
+	fmt.Println(unlockedKey.Address.Hex(), "balance", balance, time.Now().Format(time.RFC3339), err)
 	attack(*NReq, *NWorkers)
 }
 
@@ -88,8 +76,7 @@ func attack(nReq int, nWorkers int) {
 		for i := 0; i < len(request); i++ {
 			WorkQueue <- request[i]
 		}
-		//ctx, _ := context.WithTimeout(context.Background(), 100000*time.Millisecond)
-		balance, _ := client.BalanceAt(ctx, unlockedKey.Address, nil)
+		balance, _ := GetBalance(unlockedKey.Address, httpClient)
 		end := time.Now().UnixNano() / int64(time.Millisecond)
 		fmt.Println("Done a round with time = ", end-start, unlockedKey.Address.Hex(), "balance", balance, time.Now().Format(time.RFC3339))
 		if (end-start < 1000) {
