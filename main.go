@@ -27,7 +27,7 @@ var wg sync.WaitGroup
 var client *ethclient.Client
 var nonce uint64
 var unlockedKey *keystore.Key
-//var request []*types.Transaction
+var request []*types.Transaction
 
 func main() {
 	flag.Parse()
@@ -57,41 +57,21 @@ func main() {
 
 func attack(nReq int, nWorkers int) {
 	// Start the dispatcher.
-	for {
+	StartDispatcher(nWorkers)
+	c := make(chan os.Signal)
+	stop := false
+	for (!stop) {
+		request := make([]*types.Transaction, nReq*nWorkers)
+		prepareData(request)
 		start := time.Now().UnixNano() / int64(time.Millisecond)
-		fmt.Println("Start send ", *NReq, "request ")
-
-		for i := 0; i < *NReq; i++ {
-			//startPrice := int64(1)
-			//value := big.NewInt(1)
-			tx := types.NewTransaction(nonce, unlockedKey.Address, big.NewInt(1), 21000, big.NewInt(1), nil)
-			signTx, err := types.SignTx(tx, types.NewEIP155Signer(big.NewInt(89)), unlockedKey.PrivateKey)
-			if err != nil {
-				log.Fatal(err)
-			}
-			err = Sender(signTx)
-			//if err != nil && strings.Contains(err.Error(), "replacement transaction underpriced") {
-			//	checkContinue := true
-			//	for (checkContinue) {
-			//		startPrice = startPrice + 1000
-			//		fmt.Println("try resend transaction none = ", nonce, "  gasPrice ", startPrice, "err", err)
-			//		tx := types.NewTransaction(nonce, unlockedKey.Address, value, 21000, big.NewInt(startPrice), nil)
-			//		signTx, _ = types.SignTx(tx, types.NewEIP155Signer(big.NewInt(89)), unlockedKey.PrivateKey)
-			//		err = Sender(signTx)
-			//		if err != nil && strings.Contains(err.Error(), "replacement transaction underpriced") {
-			//			checkContinue = true
-			//		} else {
-			//			checkContinue = false
-			//			if err != nil {
-			//				fmt.Println(err, signTx.Hash().Hex(), nonce)
-			//			}
-			//		}
-			//	}
-			//} else
-			if err != nil {
-				fmt.Println(err, signTx.Hash().Hex(), nonce)
-			}
-			nonce++
+		fmt.Println("Start send ", len(request), "request ")
+		for i := 0; i < len(request); i++ {
+			WorkQueue <- request[i]
+		}
+		select {
+		case <-c:
+			stop = true
+			fmt.Println("Waiting Stop")
 		}
 		ctx, _ := context.WithTimeout(context.Background(), 100000*time.Millisecond)
 		balance, _ := client.BalanceAt(ctx, unlockedKey.Address, nil)
@@ -109,7 +89,7 @@ func prepareData(request []*types.Transaction) {
 	fmt.Println("Prepare data")
 	var err error
 	for i := 0; i < len(request); i++ {
-		tx := types.NewTransaction(uint64(i)+nonce, unlockedKey.Address, big.NewInt(int64(i+1)+int64(nonce)), 21000, big.NewInt(int64(10000+uint64(i))), nil)
+		tx := types.NewTransaction(nonce, unlockedKey.Address, big.NewInt(1), 21000, big.NewInt(1), nil)
 		request[i], err = types.SignTx(tx, types.NewEIP155Signer(big.NewInt(89)), unlockedKey.PrivateKey)
 		if err != nil {
 			log.Fatal(err)
