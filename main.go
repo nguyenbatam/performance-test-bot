@@ -13,18 +13,17 @@ import (
 	"github.com/ethereum/go-ethereum/core/types"
 	"log"
 	"math/big"
-	"strings"
 )
 
 var (
 	NWorkers = flag.Int("n", 4, "The number of workers to start")
 	NReq     = flag.Int("req", 1, "The number of transactions")
-	Urls      = flag.String("urls", "http://localhost:8545", "That you want to connect")
+	Url      = flag.String("url", "http://localhost:8545", "That you want to connect")
 	KeyFile  = flag.String("key-file", "key.json", "Key file name")
 	Password = flag.String("password", "", "Keyfile password")
 )
 var wg sync.WaitGroup
-var clients []*ethclient.Client
+var client *ethclient.Client
 var nonce uint64
 var unlockedKey *keystore.Key
 var request []*types.Transaction
@@ -32,7 +31,7 @@ var request []*types.Transaction
 func main() {
 	flag.Parse()
 	key_file := *KeyFile
-	fmt.Println(key_file, *NWorkers, *Urls, )
+	fmt.Println(key_file, *NWorkers, *Url, )
 	if _, err := os.Stat(key_file); err != nil {
 		fmt.Println(err)
 	}
@@ -41,18 +40,16 @@ func main() {
 	if err != nil {
 		fmt.Println(err)
 	}
-	urls:=strings.Split(*Urls,",")
-	clients = make([]*ethclient.Client,len(urls))
-	for i := 0; i < len(clients); i++ {
-		clients[i], err = ethclient.Dial(urls[i])
-		if err != nil {
-			log.Fatal(err)
-		}
+	client, err = ethclient.Dial(*Url)
+	if err != nil {
+		log.Fatal(err)
 	}
 
 	unlockedKey, _ = keystore.DecryptKey(data, *Password)
 	ctx, _ := context.WithTimeout(context.Background(), 100000*time.Millisecond)
-	nonce, _ = clients[0].NonceAt(ctx, unlockedKey.Address, nil)
+	nonce, _ = client.NonceAt(ctx, unlockedKey.Address, nil)
+	balance, _ := client.BalanceAt(ctx, unlockedKey.Address, nil)
+	fmt.Println(unlockedKey.Address.Hex(), "balance", balance)
 	attack(*NReq, *NWorkers)
 }
 
@@ -71,8 +68,10 @@ func attack(nReq int, nWorkers int) {
 			WorkQueue <- (request)[i]
 		}
 		prepareData(request)
+		ctx, _ := context.WithTimeout(context.Background(), 100000*time.Millisecond)
+		balance, _ := client.BalanceAt(ctx, unlockedKey.Address, nil)
 		end := time.Now().UnixNano() / int64(time.Millisecond)
-		fmt.Println("Done a round with time = ", end-start)
+		fmt.Println("Done a round with time = ", end-start, unlockedKey.Address.Hex(), "balance", balance)
 		if (end-start < 1000) {
 			sleep := int(1000 + start - end)
 			time.Sleep(time.Duration(sleep) * time.Microsecond)
@@ -85,7 +84,7 @@ func prepareData(request []*types.Transaction) {
 	fmt.Println("Prepare data")
 	var err error
 	for i := 0; i < len(request); i++ {
-		tx := types.NewTransaction(uint64(i)+nonce, unlockedKey.Address, big.NewInt(int64(i+1)+int64(nonce)), 21000, big.NewInt(int64(100000+i)), nil)
+		tx := types.NewTransaction(uint64(i)+nonce, unlockedKey.Address, big.NewInt(int64(i+1)+int64(nonce)), 21000, big.NewInt(int64(10000+uint64(i))), nil)
 		request[i], err = types.SignTx(tx, types.NewEIP155Signer(big.NewInt(89)), unlockedKey.PrivateKey)
 		if err != nil {
 			log.Fatal(err)
