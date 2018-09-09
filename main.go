@@ -81,12 +81,15 @@ func attack(nReq int, nWorkers int) {
 					err = Sender(signTx)
 					if err != nil && strings.Contains(err.Error(), "replacement transaction underpriced") {
 						checkContinue = true
-					} else if err != nil {
-						fmt.Println(err, signTx.Hash().Hex(),nonce)
+					} else {
+						checkContinue = false
+						if err != nil {
+							fmt.Println(err, signTx.Hash().Hex(), nonce)
+						}
 					}
 				}
 			} else if err != nil {
-				fmt.Println(err, signTx.Hash().Hex(),nonce)
+				fmt.Println(err, signTx.Hash().Hex(), nonce)
 			}
 			nonce++
 		}
