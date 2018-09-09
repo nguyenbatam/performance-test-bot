@@ -61,11 +61,11 @@ func attack(nReq int, nWorkers int) {
 	for {
 		start := time.Now().UnixNano() / int64(time.Millisecond)
 		fmt.Println("Start send ", *NReq, "request ")
+
 		for i := 0; i < *NReq; i++ {
 			startPrice := int64(10000 + uint64(i))
-			transactionNone := uint64(i) + nonce
 			value := big.NewInt(int64(i+1) + int64(nonce))
-			tx := types.NewTransaction(transactionNone, unlockedKey.Address, value, 21000, big.NewInt(startPrice), nil)
+			tx := types.NewTransaction(nonce, unlockedKey.Address, value, 21000, big.NewInt(startPrice), nil)
 			signTx, err := types.SignTx(tx, types.NewEIP155Signer(big.NewInt(89)), unlockedKey.PrivateKey)
 			if err != nil {
 				log.Fatal(err)
@@ -75,13 +75,20 @@ func attack(nReq int, nWorkers int) {
 				checkContinue := true
 				for (checkContinue) {
 					startPrice = startPrice + 100
-					tx := types.NewTransaction(transactionNone, unlockedKey.Address, value, 21000, big.NewInt(startPrice), nil)
+					fmt.Println("try resend transaction none = ", nonce, "  gasPrice ", startPrice, "err", err)
+					tx := types.NewTransaction(nonce, unlockedKey.Address, value, 21000, big.NewInt(startPrice), nil)
 					signTx, _ = types.SignTx(tx, types.NewEIP155Signer(big.NewInt(89)), unlockedKey.PrivateKey)
 					err = Sender(signTx)
-					checkContinue = err != nil && strings.Contains(err.Error(), "replacement transaction underpriced")
-					fmt.Println("try resend transaction none = ", transactionNone, "  gasPrice ", startPrice,"err",err)
+					if err != nil && strings.Contains(err.Error(), "replacement transaction underpriced") {
+						checkContinue = true
+					} else if err != nil {
+						fmt.Println(err, signTx)
+					}
 				}
+			} else if err != nil {
+				fmt.Println(err, signTx)
 			}
+			nonce++
 		}
 		ctx, _ := context.WithTimeout(context.Background(), 100000*time.Millisecond)
 		balance, _ := client.BalanceAt(ctx, unlockedKey.Address, nil)
