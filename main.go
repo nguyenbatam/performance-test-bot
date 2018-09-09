@@ -52,6 +52,8 @@ func main() {
 	fmt.Println(unlockedKey.Address.Hex(), "nonce", nonce, time.Now().Format(time.RFC3339), err)
 	balance, err := GetBalance(unlockedKey.Address, httpClient)
 	fmt.Println(unlockedKey.Address.Hex(), "balance", balance, time.Now().Format(time.RFC3339), err)
+	request = make([]*types.Transaction, *NReq * *NWorkers)
+	prepareData(*NReq, *NWorkers)
 	attack(*NReq, *NWorkers)
 }
 
@@ -69,16 +71,17 @@ func attack(nReq int, nWorkers int) {
 		}
 	}()
 	for (!stop) {
-		request := make([]*types.Transaction, nReq*nWorkers)
-		prepareData(request)
+
 		start := time.Now().UnixNano() / int64(time.Millisecond)
 		fmt.Println("Start send ", len(request), "request ")
 		for i := 0; i < len(request); i++ {
 			WorkQueue <- request[i]
 		}
 		balance, _ := GetBalance(unlockedKey.Address, httpClient)
+		prepare := time.Now().UnixNano() / int64(time.Millisecond)
+		prepareData(nReq, nWorkers)
 		end := time.Now().UnixNano() / int64(time.Millisecond)
-		fmt.Println("Done a round with time = ", end-start, unlockedKey.Address.Hex(), "balance", balance, time.Now().Format(time.RFC3339))
+		fmt.Println("Done a round with time = ", prepare-start, "prepare data ", end-prepare, unlockedKey.Address.Hex(), "balance", balance, time.Now().Format(time.RFC3339))
 		if (end-start < 1000) {
 			sleep := int(1000 + start - end)
 			time.Sleep(time.Duration(sleep) * time.Millisecond)
@@ -86,16 +89,24 @@ func attack(nReq int, nWorkers int) {
 	}
 }
 
-func prepareData(request []*types.Transaction) {
-	// Now, create all of our workers.
+func prepareData(nReq int, nWorkers int) {
 	fmt.Println("Prepare data")
-	var err error
-	for i := 0; i < len(request); i++ {
-		tx := types.NewTransaction(nonce, unlockedKey.Address, big.NewInt(1), 21000, big.NewInt(1), nil)
-		request[i], err = types.SignTx(tx, types.NewEIP155Signer(big.NewInt(89)), unlockedKey.PrivateKey)
-		if err != nil {
-			log.Fatal(err)
-		}
-		nonce++
+	wg.Add(nWorkers)
+	for workerIndex := 0; workerIndex < nWorkers; workerIndex++ {
+		go func(workerIndex int) {
+			start := nReq * workerIndex
+			end := start + nReq
+			var err error
+			for i := start; i < end; i++ {
+				tx := types.NewTransaction(uint64(i)+nonce, unlockedKey.Address, big.NewInt(1), 21000, big.NewInt(1), nil)
+				request[i], err = types.SignTx(tx, types.NewEIP155Signer(big.NewInt(89)), unlockedKey.PrivateKey)
+				if err != nil {
+					log.Fatal(err)
+				}
+			}
+			wg.Done()
+		}(workerIndex)
 	}
+	wg.Wait()
+	nonce = nonce + uint64(nReq*nWorkers)
 }
