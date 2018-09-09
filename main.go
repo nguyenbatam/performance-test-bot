@@ -14,6 +14,7 @@ import (
 	"log"
 	"math/big"
 	"github.com/ethereum/go-ethereum"
+	"strings"
 )
 
 var (
@@ -27,7 +28,7 @@ var wg sync.WaitGroup
 var client *ethclient.Client
 var nonce uint64
 var unlockedKey *keystore.Key
-var request []*types.Transaction
+//var request []*types.Transaction
 
 func main() {
 	flag.Parse()
@@ -50,29 +51,42 @@ func main() {
 	ctx, _ := context.WithTimeout(context.Background(), 100000*time.Millisecond)
 	nonce, _ = client.NonceAt(ctx, unlockedKey.Address, nil)
 	balance, _ := client.BalanceAt(ctx, unlockedKey.Address, nil)
-	gasprice,_ :=client.EstimateGas(ctx,ethereum.CallMsg{})
-	fmt.Println(unlockedKey.Address.Hex(), "balance", balance,"gasprice",gasprice)
-	//attack(*NReq, *NWorkers)
+	gasprice, _ := client.EstimateGas(ctx, ethereum.CallMsg{})
+	fmt.Println(unlockedKey.Address.Hex(), "balance", balance, "gasprice", gasprice, time.Now().Format(time.RFC3339))
+	attack(*NReq, *NWorkers)
 }
 
 func attack(nReq int, nWorkers int) {
 	// Start the dispatcher.
 	for {
-		request = make([]*types.Transaction, *NReq * *NWorkers)
-		prepareData(request)
 		start := time.Now().UnixNano() / int64(time.Millisecond)
-		fmt.Println("Start send ", len(request), "request ")
-		for i := 0; i < len(request); i++ {
-			if (request)[i] == nil {
-				fmt.Println(i, (request)[i])
+		fmt.Println("Start send ", *NReq, "request ")
+		for i := 0; i < *NReq; i++ {
+			startPrice := int64(10000 + uint64(i))
+			transactionNone := uint64(i) + nonce
+			value := big.NewInt(int64(i+1) + int64(nonce))
+			tx := types.NewTransaction(transactionNone, unlockedKey.Address, value, 21000, big.NewInt(startPrice), nil)
+			signTx, err := types.SignTx(tx, types.NewEIP155Signer(big.NewInt(89)), unlockedKey.PrivateKey)
+			if err != nil {
+				log.Fatal(err)
 			}
-			Sender(request[i])
+			err = Sender(signTx)
+			if err != nil && strings.Contains(err.Error(), "replacement transaction underpriced") {
+				checkContinue := true
+				for (checkContinue) {
+					startPrice = startPrice + 100
+					tx := types.NewTransaction(transactionNone, unlockedKey.Address, value, 21000, big.NewInt(startPrice), nil)
+					signTx, _ = types.SignTx(tx, types.NewEIP155Signer(big.NewInt(89)), unlockedKey.PrivateKey)
+					err = Sender(signTx)
+					checkContinue = err != nil && strings.Contains(err.Error(), "replacement transaction underpriced")
+					fmt.Println("try resend transaction none = ", transactionNone, "  gasPrice ", startPrice,"err",err)
+				}
+			}
 		}
-		prepareData(request)
 		ctx, _ := context.WithTimeout(context.Background(), 100000*time.Millisecond)
 		balance, _ := client.BalanceAt(ctx, unlockedKey.Address, nil)
 		end := time.Now().UnixNano() / int64(time.Millisecond)
-		fmt.Println("Done a round with time = ", end-start, unlockedKey.Address.Hex(), "balance", balance)
+		fmt.Println("Done a round with time = ", end-start, unlockedKey.Address.Hex(), "balance", balance, time.Now().Format(time.RFC3339))
 		if (end-start < 1000) {
 			sleep := int(1000 + start - end)
 			time.Sleep(time.Duration(sleep) * time.Microsecond)
