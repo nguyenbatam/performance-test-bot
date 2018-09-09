@@ -5,7 +5,7 @@ import (
 	"github.com/ethereum/go-ethereum/core/types"
 )
 
-var WorkQueue = make(chan *types.Transaction, 1000)
+var WorkQueue = make(chan *types.Transaction)
 
 func StartDispatcher(nworkers int) {
 	for i := 0; i < nworkers; i++ {

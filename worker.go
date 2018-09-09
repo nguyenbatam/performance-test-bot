@@ -27,9 +27,14 @@ func (w Worker) Start() {
 		for {
 			select {
 			case signTx := <-w.Work:
-				err := Sender(signTx)
-				if (err != nil) {
-					fmt.Println(err,signTx)
+				for i := 0; i < 3; i++ {
+					err := Sender(signTx)
+					if (err != nil) {
+						fmt.Println(err, signTx)
+					} else {
+						break
+					}
+
 				}
 			}
 		}

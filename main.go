@@ -13,7 +13,10 @@ import (
 	"github.com/ethereum/go-ethereum/core/types"
 	"log"
 	"math/big"
-	"github.com/ethereum/go-ethereum"
+	"net/http"
+	"github.com/ethereum/go-ethereum/rpc"
+	"os/signal"
+	"syscall"
 )
 
 var (
@@ -28,7 +31,7 @@ var client *ethclient.Client
 var nonce uint64
 var unlockedKey *keystore.Key
 var request []*types.Transaction
-
+var ctx context.Context
 func main() {
 	flag.Parse()
 	key_file := *KeyFile
@@ -41,17 +44,26 @@ func main() {
 	if err != nil {
 		fmt.Println(err)
 	}
-	client, err = ethclient.Dial(*Url)
+	tr := &http.Transport{
+		MaxIdleConns:      10,
+		IdleConnTimeout:   30 * time.Second,
+		DisableKeepAlives: true,
+	}
+	httpClient := http.Client{Transport: tr}
+	rpcClient, err := rpc.DialHTTPWithClient(*Url, &httpClient)
+	if err != nil {
+		log.Fatal(err)
+	}
+	client = ethclient.NewClient(rpcClient)
 	if err != nil {
 		log.Fatal(err)
 	}
 
 	unlockedKey, _ = keystore.DecryptKey(data, *Password)
-	ctx, _ := context.WithTimeout(context.Background(), 100000*time.Millisecond)
+	ctx= context.Background()
 	nonce, _ = client.NonceAt(ctx, unlockedKey.Address, nil)
 	balance, _ := client.BalanceAt(ctx, unlockedKey.Address, nil)
-	gasprice, _ := client.EstimateGas(ctx, ethereum.CallMsg{})
-	fmt.Println(unlockedKey.Address.Hex(), "balance", balance, "gasprice", gasprice, time.Now().Format(time.RFC3339))
+	fmt.Println(unlockedKey.Address.Hex(), "balance", balance, time.Now().Format(time.RFC3339))
 	attack(*NReq, *NWorkers)
 }
 
@@ -59,7 +71,15 @@ func attack(nReq int, nWorkers int) {
 	// Start the dispatcher.
 	StartDispatcher(nWorkers)
 	c := make(chan os.Signal)
+	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
 	stop := false
+	go func() {
+		select {
+		case <-c:
+			fmt.Println("Waiting Stop")
+			stop = true
+		}
+	}()
 	for (!stop) {
 		request := make([]*types.Transaction, nReq*nWorkers)
 		prepareData(request)
@@ -68,12 +88,7 @@ func attack(nReq int, nWorkers int) {
 		for i := 0; i < len(request); i++ {
 			WorkQueue <- request[i]
 		}
-		select {
-		case <-c:
-			stop = true
-			fmt.Println("Waiting Stop")
-		}
-		ctx, _ := context.WithTimeout(context.Background(), 100000*time.Millisecond)
+		//ctx, _ := context.WithTimeout(context.Background(), 100000*time.Millisecond)
 		balance, _ := client.BalanceAt(ctx, unlockedKey.Address, nil)
 		end := time.Now().UnixNano() / int64(time.Millisecond)
 		fmt.Println("Done a round with time = ", end-start, unlockedKey.Address.Hex(), "balance", balance, time.Now().Format(time.RFC3339))
@@ -94,6 +109,6 @@ func prepareData(request []*types.Transaction) {
 		if err != nil {
 			log.Fatal(err)
 		}
+		nonce++
 	}
-	nonce = nonce + uint64(len(request))
 }
