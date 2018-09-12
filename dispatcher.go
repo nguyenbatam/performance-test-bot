@@ -2,10 +2,10 @@ package main
 
 import (
 	"fmt"
-	"github.com/ethereum/go-ethereum/core/types"
+	"net/http"
 )
 
-var WorkQueue = make(chan *types.Transaction)
+var WorkQueue = make(chan *http.Request)
 
 func StartDispatcher(nworkers int) {
 	for i := 0; i < nworkers; i++ {

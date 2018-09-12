@@ -2,13 +2,13 @@ package main
 
 import (
 	"fmt"
-	"github.com/ethereum/go-ethereum/core/types"
+	"net/http"
 )
 
 // NewWorker creates, and returns a new Worker object. Its only argument
 // is a channel that the worker can add itself to whenever it is done its
 // work.
-func NewWorker(id int, workerQueue chan *types.Transaction) Worker {
+func NewWorker(id int, workerQueue chan *http.Request) Worker {
 	// Create, and return the worker.
 	worker := Worker{
 		ID:   id,
@@ -19,7 +19,7 @@ func NewWorker(id int, workerQueue chan *types.Transaction) Worker {
 
 type Worker struct {
 	ID   int
-	Work chan *types.Transaction
+	Work chan *http.Request
 }
 
 func (w Worker) Start() {
@@ -28,7 +28,7 @@ func (w Worker) Start() {
 			select {
 			case signTx := <-w.Work:
 				for i := 0; i < 3; i++ {
-					err := Sender(signTx)
+					err := SendRequest(signTx, httpClient)
 					if (err != nil) {
 						fmt.Println(err, signTx)
 					} else {

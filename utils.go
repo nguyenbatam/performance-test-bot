@@ -75,18 +75,27 @@ func GetTransactionCount(address common.Address, client *http.Client) (uint64, e
 	return count.Uint64(), nil
 }
 
-func SendRawTransaction(tx *types.Transaction, client *http.Client) (error) {
-	data, err := rlp.EncodeToBytes(tx)
+func CreateRequestSendRawTransaction(nonce uint64, addresss common.Address) (*http.Request, error) {
+	tx := types.NewTransaction(nonce, addresss, big.NewInt(1), 21000, big.NewInt(1), nil)
+	signTx, err := types.SignTx(tx, types.NewEIP155Signer(big.NewInt(89)), unlockedKey.PrivateKey)
 	if err != nil {
-		return err
+		return nil, err
+	}
+	data, err := rlp.EncodeToBytes(signTx)
+	if err != nil {
+		return nil, err
 	}
 	body := "{\"jsonrpc\":\"2.0\",\"method\":\"eth_sendRawTransaction\",\"params\":[\"" +
 		common.ToHex(data) + "\"],\"id\":1}"
 	req, err := http.NewRequest("POST", *Url, bytes.NewReader([]byte(body)))
 	if err != nil {
-		return ErrHTTP
+		return nil, ErrHTTP
 	}
 	req.Header.Set("Content-Type", "application/json")
+	return req, nil
+}
+
+func SendRequest(req *http.Request, client *http.Client) (error) {
 	resp, err := client.Do(req)
 	defer resp.Body.Close()
 	respByte, err := ioutil.ReadAll(resp.Body)

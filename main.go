@@ -8,12 +8,11 @@ import (
 	"os"
 	"sync"
 	"time"
-	"github.com/ethereum/go-ethereum/core/types"
 	"log"
-	"math/big"
 	"net/http"
 	"os/signal"
 	"syscall"
+	"net"
 )
 
 var (
@@ -26,7 +25,7 @@ var (
 var wg sync.WaitGroup
 var nonce uint64
 var unlockedKey *keystore.Key
-var request []*types.Transaction
+var request []*http.Request
 var httpClient *http.Client
 
 func main() {
@@ -41,18 +40,26 @@ func main() {
 	if err != nil {
 		fmt.Println(err)
 	}
-	tr := &http.Transport{
-		MaxIdleConns:      10,
-		IdleConnTimeout:   30 * time.Second,
-		DisableKeepAlives: false,
+
+	transport := &http.Transport{
+		DialContext: (&net.Dialer{
+			Timeout:   30 * time.Second,
+			KeepAlive: 30 * time.Second,
+			DualStack: true,
+		}).DialContext,
+		MaxIdleConns:          200,
+		MaxIdleConnsPerHost:   100,
+		IdleConnTimeout:       90 * time.Second,
+		TLSHandshakeTimeout:   10 * time.Second,
+		ExpectContinueTimeout: 1 * time.Second,
 	}
-	httpClient = &http.Client{Transport: tr}
+	httpClient = &http.Client{Transport: transport}
 	unlockedKey, _ = keystore.DecryptKey(data, *Password)
 	nonce, err = GetTransactionCount(unlockedKey.Address, httpClient)
 	fmt.Println(unlockedKey.Address.Hex(), "nonce", nonce, time.Now().Format(time.RFC3339), err)
 	balance, err := GetBalance(unlockedKey.Address, httpClient)
 	fmt.Println(unlockedKey.Address.Hex(), "balance", balance, time.Now().Format(time.RFC3339), err)
-	request = make([]*types.Transaction, *NReq * *NWorkers)
+	request = make([]*http.Request, *NReq * *NWorkers)
 	prepareData(*NReq, *NWorkers)
 	attack(*NReq, *NWorkers)
 }
@@ -98,8 +105,7 @@ func prepareData(nReq int, nWorkers int) {
 			end := start + nReq
 			var err error
 			for i := start; i < end; i++ {
-				tx := types.NewTransaction(uint64(i)+nonce, unlockedKey.Address, big.NewInt(1), 21000, big.NewInt(1), nil)
-				request[i], err = types.SignTx(tx, types.NewEIP155Signer(big.NewInt(89)), unlockedKey.PrivateKey)
+				request[i], err = CreateRequestSendRawTransaction(uint64(i)+nonce, unlockedKey.Address)
 				if err != nil {
 					log.Fatal(err)
 				}
