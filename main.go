@@ -5,33 +5,40 @@ import (
 	"flag"
 	"fmt"
 	"github.com/ethereum/go-ethereum/accounts/keystore"
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/ethclient"
 	"io/ioutil"
+	"log"
+	"math"
+	"math/big"
 	"os"
+	"strings"
 	"sync"
 	"time"
-	"github.com/ethereum/go-ethereum/core/types"
-	"log"
-	"math/big"
 )
 
 var (
-	NWorkers = flag.Int("n", 4, "The number of workers to start")
 	NReq     = flag.Int("req", 1, "The number of transactions")
-	Url      = flag.String("url", "http://localhost:8545", "That you want to connect")
+	Urls     = flag.String("urls", "http://localhost:8545,http://localhost:8546", "That you want to connect")
 	KeyFile  = flag.String("key-file", "key.json", "Key file name")
 	Password = flag.String("password", "", "Keyfile password")
 )
 var wg sync.WaitGroup
-var client *ethclient.Client
-var nonce uint64
+var mainClient *ethclient.Client
+var mainNonce uint64
 var unlockedKey *keystore.Key
-var request []*types.Transaction
+var nAccount int
+var ks *keystore.KeyStore
+var _10TOMO = big.NewInt(1).Mul(big.NewInt(int64(math.Pow10(9))), big.NewInt(int64(math.Pow10(10))))
+var gasLimit = uint64(21000)
+var LockSendMoneyToBot sync.RWMutex
+var urls []string
+var unlockedBotKeys []*keystore.Key
 
 func main() {
 	flag.Parse()
 	key_file := *KeyFile
-	fmt.Println(key_file, *NWorkers, *Url, )
 	if _, err := os.Stat(key_file); err != nil {
 		fmt.Println(err)
 	}
@@ -40,31 +47,88 @@ func main() {
 	if err != nil {
 		fmt.Println(err)
 	}
-	client, err = ethclient.Dial(*Url)
+	unlockedKey, err = keystore.DecryptKey(data, *Password)
+	if err != nil {
+		fmt.Println(err)
+	}
+
+	urls = strings.Split(*Urls, ",")
+	mainClient, err = ethclient.Dial(urls[0])
 	if err != nil {
 		log.Fatal(err)
 	}
-	unlockedKey, _ = keystore.DecryptKey(data, *Password)
-	ctx, _ := context.WithTimeout(context.Background(), 100000*time.Millisecond)
-	nonce, _ = client.NonceAt(ctx, unlockedKey.Address, nil)
-	request = make([]*types.Transaction, *NReq * *NWorkers)
-	prepareData(*NReq, *NWorkers)
-	attack(*NReq, *NWorkers)
+	mainNonce, _ = mainClient.PendingNonceAt(context.Background(), unlockedKey.Address)
+
+	fmt.Println("read account bot ")
+	nAccount = len(urls)
+	// Create a new account with the specified encryption passphrase
+	fmt.Println("create ", nAccount, "new account and create transaction send money for bots", _10TOMO)
+	ks = keystore.NewKeyStore("", keystore.StandardScryptN, keystore.StandardScryptP)
+	for i := 0; i < nAccount; i++ {
+		newAcc, err1 := ks.NewAccount("")
+		if err1 != nil {
+			log.Fatal(err1)
+		}
+		ks.Unlock(newAcc, "")
+		jsonByte, _ := ks.Export(newAcc, "", "")
+		unlockedBot, _ := keystore.DecryptKey(jsonByte, "")
+		unlockedBotKeys = append(unlockedBotKeys, unlockedBot)
+		sendMoneyToBot(newAcc.Address)
+
+	}
+
+	fmt.Println("wait done send money for bot")
+	done := false
+	for !done {
+		time.Sleep(5 * time.Second)
+		done = true
+		for i := 0; i < nAccount; i++ {
+			result, err1 := mainClient.BalanceAt(context.Background(), unlockedBotKeys[i].Address, nil)
+			if err1 != nil || result.Uint64() < gasLimit {
+				fmt.Println("stil waiting send money to ", unlockedBotKeys[i].Address.Hex(), err1, result)
+				done = false
+				break
+			}
+		}
+	}
+
+	fmt.Println("Start run ", nAccount, "bot")
+	wg.Add(nAccount)
+	for i := 0; i < nAccount; i++ {
+		go attack(*NReq, urls[i], unlockedBotKeys[i])
+	}
+	wg.Wait()
 }
 
-func attack(nReq int, nWorkers int) {
-	StartDispatcher(nWorkers)
+func attack(request int, url string, account *keystore.Key) {
+	fmt.Println("Start run ", account.Address.Hex(), "bot with", url)
+	client, err := ethclient.Dial(url)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	nonce, _ := client.PendingNonceAt(context.Background(), account.Address)
 	// Start the dispatcher.
 	for {
 		start := time.Now().UnixNano() / int64(time.Millisecond)
-		fmt.Println("Start send ", len(request), "request ")
-		for i := 0; i < len(request); i++ {
-			if (request)[i] == nil {
-				fmt.Println(i, (request)[i])
-			}
-			WorkQueue <- (request)[i]
+		balance, _ := client.BalanceAt(context.Background(), account.Address, nil)
+		if balance.Uint64() < gasLimit*10 {
+			sendMoneyToBot(account.Address)
+			time.Sleep(5 * time.Second)
 		}
-		prepareData(nReq, nWorkers)
+		fmt.Println("Start send ", request, "request  with account ", account.Address.Hex(), "balance", balance)
+		for i := 0; i < request; i++ {
+			tx := types.NewTransaction(nonce, account.Address, big.NewInt(1), gasLimit, big.NewInt(1), nil)
+			signedTx, err := types.SignTx(tx, types.NewEIP155Signer(big.NewInt(89)), account.PrivateKey)
+			if err != nil {
+				log.Fatal(err)
+			}
+			err = client.SendTransaction(context.Background(), signedTx)
+			if (err != nil) {
+				fmt.Println(err, signedTx)
+			}
+			nonce++
+		}
 		end := time.Now().UnixNano() / int64(time.Millisecond)
 		fmt.Println("Done a round with time = ", end-start)
 		if (end-start < 1000) {
@@ -72,27 +136,22 @@ func attack(nReq int, nWorkers int) {
 			time.Sleep(time.Duration(sleep) * time.Microsecond)
 		}
 	}
+	wg.Done()
 }
 
-func prepareData(nReq int, nWorkers int) {
-	// Now, create all of our workers.
-	fmt.Println("Prepare data")
-	wg.Add(nWorkers)
-	for workerIndex := 0; workerIndex < nWorkers; workerIndex++ {
-		go func(workerIndex int) {
-			start := nReq * workerIndex
-			end := start + nReq
-			var err error
-			for i := start; i < end; i++ {
-				tx := types.NewTransaction(uint64(i)+nonce, unlockedKey.Address, big.NewInt(int64(i+1)+int64(nonce)), 21000, big.NewInt(int64(100000+i)), nil)
-				request[i], err = types.SignTx(tx, types.NewEIP155Signer(big.NewInt(89)), unlockedKey.PrivateKey)
-				if err != nil {
-					log.Fatal(err)
-				}
-			}
-			wg.Done()
-		}(workerIndex)
+func sendMoneyToBot(address common.Address) {
+	fmt.Println("start create transaction for bot ", address.Hex())
+	LockSendMoneyToBot.Lock()
+	defer LockSendMoneyToBot.Unlock()
+	tx := types.NewTransaction(mainNonce, address, _10TOMO, gasLimit, big.NewInt(1), nil)
+	signedTx, err := types.SignTx(tx, types.NewEIP155Signer(big.NewInt(89)), unlockedKey.PrivateKey)
+	if err != nil {
+		log.Fatal(err)
 	}
-	wg.Wait()
-	nonce = nonce + uint64(nReq*nWorkers)
+	err = mainClient.SendTransaction(context.Background(), signedTx)
+	if (err != nil) {
+		log.Fatal(err, signedTx)
+	}
+	fmt.Println("done send transaction for bot ", address.Hex())
+	mainNonce++
 }
