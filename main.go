@@ -59,7 +59,7 @@ func main() {
 	}
 	mainNonce, _ = mainClient.PendingNonceAt(context.Background(), unlockedKey.Address)
 
-	fmt.Println("read account bot ")
+	fmt.Println("read account bot mainNonce ", mainNonce)
 	nAccount = len(urls)
 	// Create a new account with the specified encryption passphrase
 	fmt.Println("create ", nAccount, "new account and create transaction send money for bots", _10TOMO)
@@ -101,22 +101,21 @@ func main() {
 }
 
 func attack(request int, url string, account *keystore.Key) {
-	fmt.Println("Start run ", account.Address.Hex(), "bot with", url)
+	fmt.Println("Start run ", request, " request  with account ", account.Address.Hex(), "bot with", url)
 	client, err := ethclient.Dial(url)
 	if err != nil {
 		log.Fatal(err)
 	}
-
 	nonce, _ := client.PendingNonceAt(context.Background(), account.Address)
 	// Start the dispatcher.
 	for {
 		start := time.Now().UnixNano() / int64(time.Millisecond)
 		balance, _ := client.BalanceAt(context.Background(), account.Address, nil)
 		if balance.Uint64() < gasLimit*10 {
+			fmt.Println("Request  money from main account to ", account.Address.Hex(), "balance", balance)
 			sendMoneyToBot(account.Address)
 			time.Sleep(5 * time.Second)
 		}
-		fmt.Println("Start send ", request, "request  with account ", account.Address.Hex(), "balance", balance)
 		for i := 0; i < request; i++ {
 			tx := types.NewTransaction(nonce, account.Address, big.NewInt(1), gasLimit, big.NewInt(1), nil)
 			signedTx, err := types.SignTx(tx, types.NewEIP155Signer(big.NewInt(89)), account.PrivateKey)
@@ -130,10 +129,11 @@ func attack(request int, url string, account *keystore.Key) {
 			nonce++
 		}
 		end := time.Now().UnixNano() / int64(time.Millisecond)
-		fmt.Println("Done a round with time = ", end-start)
 		if (end-start < 1000) {
 			sleep := int(1000 + start - end)
-			time.Sleep(time.Duration(sleep) * time.Microsecond)
+			time.Sleep(time.Duration(sleep) * time.Millisecond)
+		} else {
+			fmt.Println("Done a round with time = ", end-start, "url", url)
 		}
 	}
 	wg.Done()
@@ -152,6 +152,6 @@ func sendMoneyToBot(address common.Address) {
 	if (err != nil) {
 		log.Fatal(err, signedTx)
 	}
-	fmt.Println("done send transaction for bot ", address.Hex())
+	fmt.Println("done send transaction for bot ", address.Hex(), "nonce", mainNonce)
 	mainNonce++
 }
