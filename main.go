@@ -57,9 +57,9 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	mainNonce, _ = mainClient.PendingNonceAt(context.Background(), unlockedKey.Address)
+	mainNonce, err = mainClient.NonceAt(context.Background(), unlockedKey.Address, nil)
 
-	fmt.Println("read account bot mainNonce ", mainNonce)
+	fmt.Println("read account bot mainNonce ", mainNonce, unlockedKey.Address.Hex(), err)
 	nAccount = len(urls)
 	// Create a new account with the specified encryption passphrase
 	fmt.Println("create ", nAccount, "new account and create transaction send money for bots", _10TOMO)
@@ -73,8 +73,7 @@ func main() {
 		jsonByte, _ := ks.Export(newAcc, "", "")
 		unlockedBot, _ := keystore.DecryptKey(jsonByte, "")
 		unlockedBotKeys = append(unlockedBotKeys, unlockedBot)
-		sendMoneyToBot(newAcc.Address)
-
+		sendMoneyToBot(unlockedBot.Address)
 	}
 
 	fmt.Println("wait done send money for bot")
@@ -117,36 +116,41 @@ func attack(request int, url string, account *keystore.Key) {
 			time.Sleep(5 * time.Second)
 		}
 		for i := 0; i < request; i++ {
-			tx := types.NewTransaction(nonce, account.Address, big.NewInt(1), gasLimit, big.NewInt(1), nil)
+			tx := types.NewTransaction(nonce, account.Address, big.NewInt(1), gasLimit, big.NewInt(2500), nil)
 			signedTx, err := types.SignTx(tx, types.NewEIP155Signer(big.NewInt(89)), account.PrivateKey)
 			if err != nil {
 				log.Fatal(err)
 			}
 			err = client.SendTransaction(context.Background(), signedTx)
-			if (err != nil) {
-				fmt.Println(err, signedTx)
+			if err != nil && !strings.Contains(err.Error(), "known transaction") && !strings.Contains(err.Error(), "nonce too low") {
+				fmt.Println(err, url, signedTx)
+				nonce, _ = client.PendingNonceAt(context.Background(), account.Address)
+				break
 			}
 			nonce++
 		}
-		end := time.Now().UnixNano() / int64(time.Millisecond)
-		if (end-start < 1000) {
-			sleep := int(1000 + start - end)
+		work := time.Now().UnixNano()/int64(time.Millisecond) - start
+		if (work < 1000) {
+			sleep := int(1000 - work)
 			time.Sleep(time.Duration(sleep) * time.Millisecond)
-		} else {
-			fmt.Println("Done a round with time = ", end-start, "url", url)
 		}
+		fmt.Println("Done a round with time = ", work, "request", request, "url", url)
 	}
-	wg.Done()
 }
 
 func sendMoneyToBot(address common.Address) {
 	fmt.Println("start create transaction for bot ", address.Hex())
 	LockSendMoneyToBot.Lock()
 	defer LockSendMoneyToBot.Unlock()
-	tx := types.NewTransaction(mainNonce, address, _10TOMO, gasLimit, big.NewInt(1), nil)
+again:
+	tx := types.NewTransaction(mainNonce, address, _10TOMO, gasLimit, big.NewInt(2500), nil)
 	signedTx, err := types.SignTx(tx, types.NewEIP155Signer(big.NewInt(89)), unlockedKey.PrivateKey)
 	if err != nil {
-		log.Fatal(err)
+		if err.Error() == "nonce too low" {
+			mainNonce++
+			goto again
+		}
+		log.Fatal(err, address)
 	}
 	err = mainClient.SendTransaction(context.Background(), signedTx)
 	if (err != nil) {
